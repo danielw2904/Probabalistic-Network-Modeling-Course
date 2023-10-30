@@ -1,0 +1,21 @@
+---
+title: "Untitled"
+format: html
+editor: visual
+---
+
+```{r}
+library(data.table)
+library(ggraph)
+library(igraph)
+el <- fread("Data/spotify_connections.csv.gz")
+el[, weight_s := weight / max(weight)]
+el[, streams_a_s := total_streams_a / max(total_streams_a)]
+hist(el$weight_s)
+el[order(-weight)]
+unique(el$region_a) |> sort()
+```
+
+```{r}
+graph_from_data_frame(el, directed = FALSE)
+```
