@@ -85,9 +85,9 @@ nC.from*(nC.to - 1)
 nrow(trade)
 ```
 
-To begin visualizing the network, we use the default plotting function of the
-`igraph` package - don't worry if it doesn't look great, we'll improve the 
-aesthetics later!
+To begin visualizing the network, we use the default plotting function
+of the `igraph` package - don't worry if it doesn't look great, we'll
+improve the aesthetics later!
 
 ```{r}
 # Convert the data frame into an igraph object and view
@@ -136,8 +136,9 @@ trade.subset <- trade.plus %>%
 nrow(trade.subset) # much more sparse!
 ```
 
-While the simplified network above will be our primary data set, we can preserve
-additional vertex features in a separate data frame.
+While the simplified network above will be our primary data set, we can
+preserve additional vertex features in a separate data frame.
+
 ```{r}
 # Preserve the node-specific vars above in the vertex df
 trade.countries.subset <- trade.countries %>% 
@@ -158,9 +159,9 @@ trade.countries.subset <- trade.countries %>%
 
 ## Graphs
 
-Now that we have a more sparse network, we can visualize it
-as a graph with nodes representing countries, and edges representing a
-strong mutual trade relationshiop as defined above.
+Now that we have a more sparse network, we can visualize it as a graph
+with nodes representing countries, and edges representing a strong
+mutual trade relationshiop as defined above.
 
 We begin by experimenting with different graph layouts, including the
 force-directed Fruchterman-Reingold algorithm.
@@ -181,8 +182,7 @@ par(mfrow = c(1,1))
 Next, we can add edge weight, representing the total volume of trade
 between two countries, and node size, representing the total amount
 exported from each country. Both attributes should be scaled *roughly*
-to a (0,1) interval. We experiment with a few transformations below. 
-
+to a (0,1) interval. We experiment with a few transformations below.
 
 ```{r}
 # Set edge and scale weights
@@ -206,12 +206,11 @@ plot(g, edge.width = E(g)$weight/5, vertex.size = V(g)$size/5)
 plot(g, edge.width = E(g)$weight/k1, vertex.size = V(g)$size/k2) 
 ```
 
-
-While node size and edge width appear to be reasonable scaled, the nodes still appear too
-small, and there is too much text overlap. While we can produce
-effective graphs using the `igraph` package, `ggraph` offers greater
-control of graph aesthetics. Basic usage is demonstrated below, and a
-useful tutorial is
+While node size and edge width appear to be reasonable scaled, the nodes
+still appear too small, and there is too much text overlap. While we can
+produce effective graphs using the `igraph` package, `ggraph` offers
+greater control of graph aesthetics. Basic usage is demonstrated below,
+and a useful tutorial is
 [here](https://www.mr.schochastics.net/material/netVizR/).
 
 ```{r}
@@ -251,7 +250,8 @@ which the values of our adjacency matrix are depicted with different
 colors. Typically, the rows of an adjacency matrix (nodes) are reordered
 by a clustering algorithm to produce a more effective visualization.
 
-We can also provide an annotation dataframe which can be used to label the rows and columns. 
+We can also provide an annotation dataframe which can be used to label
+the rows and columns.
 
 ```{r}
 # Create annotation dataframe
@@ -275,10 +275,15 @@ pheatmap(A, cluster_rows = T, cluster_cols = T,
 
 ### Exercise
 
-Create a heatmap using edge weights for the color value. Does the clustering changerelative to the binary heatmap created above?
+Create a heatmap using edge weights for the color value. Does the
+clustering changerelative to the binary heatmap created above?
+
+```{r}
+A.w <- as_adjacency_matrix(g, attr = 'weight')
+pheatmap(A.w)
+```
 
 ------------------------------------------------------------------------
-
 
 ## Plotting the spectral decomposition
 
@@ -316,11 +321,14 @@ first eigenvector?
 
 As suggested above, the spectral decomposition leads to a useful measure
 of the overall influence of a node or vertex in the network, known as
-the *eigenvector centrality*. Recall the other key vertex metrics discussed in lecture:
+the *eigenvector centrality*. Recall the other key vertex metrics
+discussed in lecture:
 
--   *Eigenvector centrality*: $x_i = 1/\lambda \sum_{j \in N(i)} x_i = 1/\lambda \sum_{j \in V} a_{i,j} x_j$, 
-    where $x_i$ is the centrality score of node $i$; this implies that a node's
-    centrality socre is proportional to the sum of the centrality scores of its neighbors; measure of a node's influence in a network
+-   *Eigenvector centrality*:
+    $x_i = 1/\lambda \sum_{j \in N(i)} x_i = 1/\lambda \sum_{j \in V} a_{i,j} x_j$,
+    where $x_i$ is the centrality score of node $i$; this implies that a
+    node's centrality socre is proportional to the sum of the centrality
+    scores of its neighbors; measure of a node's influence in a network
 -   *Degree*: $d_i = \sum_{j \neq i} y_{ij}$ is the number of edges
     between node $i$ and other nodes
 -   *Betweenness centrality*: the sum of proportions of shortest paths
@@ -338,8 +346,8 @@ the *eigenvector centrality*. Recall the other key vertex metrics discussed in l
     normalize by instead taking the inverse of the average shortest path
     length.
 
-
 To compute these in R:
+
 ```{r}
 
 # Degree: most basic property, number of edges adjacent to a vertex
@@ -363,10 +371,10 @@ eigen(A)$vectors[,1]
 
 ### Exercise
 
-Comment on degree distribution. Does this network have hubs? 
+Comment on degree distribution. Does this network have hubs?
 
-Verify that eigencentrality is proportional to the sum of neighbors' eigencentrality for 
-one or two nodes. 
+Verify that eigencentrality is proportional to the sum of neighbors'
+eigencentrality for one or two nodes.
 
 ------------------------------------------------------------------------
 
@@ -431,7 +439,7 @@ mean(sps[upper.tri(sps)])
 
 ### Exercise
 
-Does it appear that our trade network displays the small world property? 
+Does it appear that our trade network displays the small world property?
 Does our network resemble and Erdos-Renyi random graph?
 
 ```{r}
@@ -492,7 +500,7 @@ if(save_files){
 
 ### Exercise
 
-***
+------------------------------------------------------------------------
 
 Throughout the course of the week you will be analyzing a data set of
 your choice. Selct a data set from among:
