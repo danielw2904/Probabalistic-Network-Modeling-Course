@@ -24,6 +24,8 @@ library(igraph)
 library(countrycode)
 library(tidyr)
 library(stringr)
+library(nimble)
+library(bayesplot)
 ```
 
 Next up, we read in the data. We classify countries as neighboring if they (on average) share 1 song each half week in the top 10 songs on Spotify.
@@ -87,14 +89,15 @@ Transform into adjacency matrix and plot.
 
 ```{r}
 adj_mat <- as_adjacency_matrix(g)
-pheatmap::pheatmap(as.matrix(adj_mat))
+A <- as.matrix(adj_mat)
+pheatmap::pheatmap(A)
 ```
 
 A plot of the eigen decomposition.
 
 ```{r}
 # Take spectral decomposition of the unweighted adjacency matrix
-eig.A <- eigen(as.matrix(adj_mat))
+eig.A <- eigen(A)
 
 # Plot posterior clustering
 evec.A <- eig.A$vectors
@@ -129,7 +132,7 @@ ggraph(g, layout = 'stress') +
 Finally, some summary statistics.
 
 ```{r}
-degree <- rowSums(as.matrix(adj_mat))
+degree <- rowSums(A)
 sort(degree)
 ```
 
@@ -190,7 +193,7 @@ glmConsts <- list(N = nC)
 # Define the model data
 cont <- as.factor(node_props$continent) 
 glmData <- list(
-  y = as.matrix(adj_mat),
+  y = A,
   x = outer(cont, cont, FUN = "==")*1 # x_ij = 1(region_i == region_j)
 )
 
@@ -251,5 +254,59 @@ mcmc.out <- nimbleMCMC(glmModel,
                        samplesAsCodaMCMC = TRUE) # Use this option if you plan on using coda
 ```
 
+Extract samples
 
+```{r}
+# Extract samples 
+samples <- mcmc.out$samples # as list of chains
+all.samples <- do.call(rbind, mcmc.out$samples) # as matrix
+
+# Extract posterior samples of the probability matrix
+p.samples <- all.samples[, grepl("^p", colnames(all.samples))]
+p.post <- matrix(data = colMeans(p.samples), byrow = FALSE, nrow = nC, ncol = nC)
+```
+
+
+Trace plot of beta
+
+```{r}
+mcmc_trace(samples, regex_pars = c("beta"))
+```
+
+```{r}
+obsA <-  A[upper.tri(A)]
+df <- data.frame(pred = p.post[upper.tri(p.post)], data = obsA)
+pROC::plot.roc(df$data ~ df$pred, percent = TRUE, print.auc = TRUE, main = "ROC Curve - Baseline GLM")
+```
+
+Posterior predictive checks:
+
+```{r}
+A.r <- matrix(NA, nrow = nC, ncol = nC)
+postD <- matrix(NA, nrow = nrow(p.samples), ncol = 1)
+allD <- matrix(NA, nrow = nrow(p.samples), ncol = nC)
+for(r in 1:nrow(p.samples)){
+  
+  # Sample adjacency matrix
+  p.post.r <- matrix(data = p.samples[r,], byrow = FALSE, nrow = nC, ncol = nC)
+  diag(p.post.r) <- 0
+  A.r[upper.tri(A.r)] <- rbinom(nC*(nC - 1)/2, 1, p.post.r[upper.tri(p.post.r)])
+  A.r[lower.tri(A.r)] <- t(A.r)[lower.tri(A.r)]
+  diag(A.r) <- 0
+  
+  # Sample network density
+  postD[r,] <- sum(A.r[lower.tri(A.r)])/(nC*(nC -1)/2)
+  allD[r,] <- rowSums(A.r)
+}
+
+D.obs <- sum(A[lower.tri(A)])/(nC*(nC -1)/2)
+hist(postD)
+abline(v = D.obs)
+
+```
+
+```{r}
+all.D.obs <- rowSums(A)
+pp_check(all.D.obs, allD[2000:2050, ], ppc_dens_overlay)
+```
 
