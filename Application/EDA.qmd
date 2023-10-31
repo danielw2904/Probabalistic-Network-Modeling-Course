@@ -10,8 +10,9 @@ output:
 ---
 
 
+# EDA
 
-# Read in Data and Setup Packages
+## Read in Data and Setup Packages
 
 First, load required packages.
 
@@ -64,9 +65,6 @@ node_props <- el %>%
   # Some vertices only show up in region_a and some only in region_b, so we perform a full join to have both
   full_join(data.frame(region = sort(unique(el$region_b))), ., c("region" = "region_a")) %>%
   
-  # Manually change "gb" to "uk"
-  mutate(region = str_replace(region, "gb", "uk")) %>%
-  
   # Merge in the node properties from the codelist
   left_join(sub_codelist, by = "region") %>%
   
@@ -78,7 +76,8 @@ node_props <- el %>%
 #extra_verts <- c(el$region_a, el$region_b) |> unique()
 ```
 
-First visualization attempt
+First visualization attempt:
+
 ```{r}
 g <- graph_from_data_frame(el[el$weight_b == 1,], vertices = node_props, directed = FALSE)
 plot(g)
@@ -116,7 +115,7 @@ A more advanced network plot.
 
 ```{r}
 ggraph(g, layout = 'stress') + 
-  geom_edge_link(alpha = 0.15) + # Set edge weight with attributes of g
+  geom_edge_link(alpha = 0.075) + # Set edge weight with attributes of g
   #scale_edge_width(range = c(0.5, 2.5)) +  # Constrain edge width
   geom_node_point(aes(size = total_streams, color = continent), alpha = 0.5) + #Set node color with attributes of g
   scale_size(range = c(2,10)) + # Constrain node sizes
@@ -130,8 +129,8 @@ ggraph(g, layout = 'stress') +
 Finally, some summary statistics.
 
 ```{r}
-degree <- rowSums(adj_mat)
-degree
+degree <- rowSums(as.matrix(adj_mat))
+sort(degree)
 ```
 
 ```{r}
@@ -170,4 +169,87 @@ edge_density(g)
 # Diameter, length of longest short path
 diameter(g, directed = FALSE, weights = NA)
 ```
+
+
+# First modeling attempts
+
+First model only includes country specific random effects, as well as an indicator if the countries lie on the same continent. (Here, the only covariate $x_i$ determines the continent an observation is on.)
+
+$$
+h(\pi_{ij}) = \alpha_i + \alpha_j + \beta \mathbb 1(x_i = x_j)
+$$
+
+First, define necessary data and constatnts.
+
+```{r}
+nC <- nrow(adj_mat)
+
+# Define the model constants
+glmConsts <- list(N = nC)
+
+# Define the model data
+cont <- as.factor(node_props$continent) 
+glmData <- list(
+  y = as.matrix(adj_mat),
+  x = outer(cont, cont, FUN = "==")*1 # x_ij = 1(region_i == region_j)
+)
+
+# Define the initial values
+glmInits <- list(alpha = rep(0, nC), beta1 = 0, sigma = 1, p = matrix(0, nC, nC))
+
+# Define the dimensions
+glmDims <- list(p = c(nC, nC))
+```
+
+Next, define the model in NIMBLE notation.
+
+```{r}
+glmCode <- nimbleCode({
+  # Priors
+  #beta0 ~ dnorm(0, sd = 1) # some use sd = 10000!
+  beta1 ~ dnorm(0, sd = 1)
+  
+  for (k in 1:N) {
+    alpha[k] ~ dnorm(0, sd = sigma)
+  }
+  
+  sigma ~ dunif(0, 10)
+  
+  # Likelihood
+  for (i in 2:N) { 
+    for (j in 1:(i-1)){
+      logit(p[i,j]) <- alpha[i] + alpha[j] + beta1 * x[i,j] #beta0 
+      p[j,i] <- p[i,j]
+      y[i,j] ~ dbin(size = 1, prob = p[i,j])
+    }
+  }
+  
+  for(i in 1:nC){ # clunky code to avoid NA in p matrix
+    p[i,i] <- 0
+  }
+  
+})
+
+```
+
+Define NIMBLE objects.
+
+```{r}
+glmModel <- nimbleModel(code = glmCode, constants = glmConsts, data = glmData, 
+                        inits = glmInits)
+
+configureMCMC(glmModel, print = TRUE, onlySlice = TRUE)
+
+set.seed(1234)
+niter <- 20000
+nburnin <- 2000
+nchains <- 2
+mcmc.out <- nimbleMCMC(glmModel,
+                       nchains = nchains, niter = niter, nburnin = nburnin,
+                       summary = TRUE, WAIC = TRUE,
+                       monitors = c('alpha', 'beta1', 'p'), 
+                       samplesAsCodaMCMC = TRUE) # Use this option if you plan on using coda
+```
+
+
 
