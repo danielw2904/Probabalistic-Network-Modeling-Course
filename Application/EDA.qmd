@@ -310,3 +310,160 @@ all.D.obs <- rowSums(A)
 pp_check(all.D.obs, allD[2000:2050, ], ppc_dens_overlay)
 ```
 
+# Creating SBM model for our data
+
+Some dimension notes: We have $N$ individuals and $K$ clusters. $Z$ is $N\times K$, with $Z_i$ being the $i$th row. $\Theta$ is $K\times K$.  
+
+$$
+Y_{ij}|Z,\Theta \sim \text{Bern}\left(Z_i\Theta Z_j'\right) \\
+\theta_{pq}\sim \text{Beta}(a^{o}, b^o), \text{ for } p \neq q \\
+\theta_{pp}\sim \text{Beta}(a^{c}, b^c)\\
+Z_{i} \sim \text{Cat}(\lambda) \\
+\lambda \sim \text{Dir}(\boldsymbol \alpha)
+$$
+
+NIMBLE code for SBM:
+
+```{r}
+# Define model with BUGS code
+sbmCode <- nimbleCode({
+  
+  # lambda - latent group assignment probabilities (vector of length K)
+  lambda[1:K] ~ ddirch(alpha[]) 
+  
+  # Z - latent group indicator (binary vector of length K, summing to 1)
+  for(i in 1:N){
+    Z[i] ~ dcat(prob = lambda[])
+  }
+    # theta - symmetric matrix of within and between group edge probabilities
+  for (i in 1:K){
+    theta[i,i] ~ dbeta(shape1 = a_c, shape2 = b_c) # Within block connections
+    for (j in 1:(i-1)){ 
+      theta[i,j] ~ dbeta(shape1 = a_o, shape2 = b_o) # Between block connections 
+      theta[j,i] <- theta[i,j] # symmetric matrix
+    }
+  }
+
+  # Pi - node to node edge probabilities (based on group membership)
+  for (i in 2:N){
+    for (j in 1:(i-1)){ # Self-edges not allowed
+      Pi[i,j] <- myCalculation(theta[,], Z[i], Z[j]) # Workaround because nimble does not allow indexing by latent variables
+      Y[i,j] ~ dbin(size = 1, prob = Pi[i,j])
+    }
+  }
+
+})
+
+## User-defined functions: written in NIMBLE
+myCalculation <- nimbleFunction(
+  run = function(grid = double(2), index1 = double(0), index2 = double(0)) {  ## index could be int() but model variables are represented as double anyway
+    return(grid[index1, index2])
+    returnType(double(0))
+  })
+
+```
+
+Define constants, inits and data for SBM
+
+```{r}
+
+K <- 10
+N <- nrow(A)
+a_o <- .5
+b_o <- 1
+a_c <- 1
+b_c <- .5
+
+alpha <- 0.01#1/K
+ 
+# Define the constants
+sbmConsts <- list(N = N, K= K,
+                  a_o = a_o, b_o = b_o,
+                  a_c = a_c, b_c = b_c,
+                  alpha =  rep(alpha, K))
+
+# Define the data
+sbmData <- list(Y = A)
+
+theta_init <- matrix(.2, K, K)
+diag(theta_init) <- 0.6
+
+sbmInits <- list(lambda = rep(1/K, K), # block assignment probs
+                 theta = theta_init, # edge probs, better init
+                 Pi = matrix(mean(A[lower.tri(A)]), N, N), # edge probs
+                 Z = sample(1:K, N, TRUE)) # group indicators
+```
+
+TODO: Add loglik to output to monitor overall mixing
+
+```{r}
+# Easiest way to run: 
+niter <- 50000
+nburn <- 10000
+nthin <- 10
+nchains <- 2
+mcmc.out <- nimbleMCMC(code = sbmCode, constants = sbmConsts,
+                       data = sbmData, inits = sbmInits,
+                       nchains = nchains, niter = niter, nburnin = nburn, thin = nthin,
+                       summary = TRUE, WAIC = TRUE,
+                       monitors = c('lambda', 'theta', 'Z'))
+```
+
+Take a first look at results!
+
+```{r}
+samples <- mcmc.out$samples
+mcmc_trace(samples, regex_pars = c("lambda"))
+```
+
+```{r}
+# Extract mcmc  samples
+samples <- do.call(rbind, mcmc.out$samples)
+z.samples <- samples[, grepl("Z", colnames(samples))]
+
+# Compute posterior similarity matrix
+z.psm <- comp.psm(z.samples) 
+plotpsm(z.psm) # note data points are reordered by hierarchical clustering here
+
+# Find a representative partition of posterior by minimizing VI
+z.vi <- minVI(z.psm, method = "greedy") 
+summary(z.vi) # if you use method = "all", this compares them all 
+z.cl.post <- z.vi$cl
+```
+
+```{r}
+eig.A <- eigen(A)
+
+# Plot posterior clustering
+evec.A <- eig.A$vectors
+
+conts <- V(g)$continent
+
+data.frame(eigen1 = rep(evec.A[,1], 2), 
+           eigen2 = rep(evec.A[,2], 2),
+           group = as.factor(c(as.numeric(as.factor(conts)), z.cl.post)),
+           grouping = as.factor(rep(c("continents", "estim"), each = N)),
+           label = rep(V(g)$iso3c, 2)) %>% 
+  ggplot(aes(x = eigen1, y = eigen2, color = group, label = label), alpha = 0.15) + 
+  geom_text(check_overlap = T, show.legend = F) +
+  facet_grid(~grouping) +
+  #geom_jitter() + 
+  theme_minimal() + 
+  guides(size = "none") + 
+  labs(title = "Data") + 
+  scale_color_brewer(type = "qual", palette = "Set1")
+```
+
+```{r}
+ggraph(g, layout = 'stress') + 
+  geom_edge_link(alpha = 0.075) + # Set edge weight with attributes of g
+  #scale_edge_width(range = c(0.5, 2.5)) +  # Constrain edge width
+  geom_node_point(aes(size = degree(g)/N, color = as.factor(z.cl.post)), alpha = 0.5) + #Set node color with attributes of g
+  scale_size(range = c(2,10)) + # Constrain node sizes
+  geom_node_text(aes(label = iso3c), repel = TRUE, point.padding = unit(0.5, "lines")) +
+  theme_void() +
+  scale_color_discrete(name = "Estimated Group") + 
+  scale_size_continuous(name = "Normalized degree")
+  #theme(legend.position = "none")
+```
+
