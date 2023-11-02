@@ -467,3 +467,103 @@ ggraph(g, layout = 'stress') +
   #theme(legend.position = "none")
 ```
 
+# Factor Model
+
+```{r}
+# Define the constants
+diag(A) <- 0 # diag = NA is useful for plotting only
+mu0 = log(mean(A)/(1-mean(A))) # prior mean for Mu is logit(meanY)
+H <- 10 # n factors
+a1 <- 2.5 # shrinkage first factor
+a2 <- 2 # shrinkage other factors
+sd.mu <- 0.1
+fmConsts <- list(V = N,
+                 H = H, 
+                 a1 = a1, a2 = a2,
+                 mu0 = mu0, sd.mu = sd.mu,
+                 M = rep(0, N))
+
+# Define the data
+fmData <- list(Y = A)
+
+# Set initialization parameters
+fmInits <- list(X = matrix(0, N, H), 
+                U = 1:H,
+                mu = mu0,
+                )
+
+fmDims <- list(Tau = H, X = c(N, H), P = c(N,N))
+
+```
+
+
+```{r}
+# Define model with BUGS code
+fmCode <- nimbleCode({
+  
+  # Intercept
+  mu ~ dnorm(mu0, sd = sd.mu)
+  
+  # Shrinkage process
+  U[1] ~ dgamma(a1, 1)
+  for(h in 2:H){
+    U[h] ~ dgamma(a2, 1)
+  }
+
+  for(h in 1:H){
+    Tau[h] <- prod(U[1:h])
+  }
+
+  # Latent factors
+  for(h in 1:H){
+    for(v in 1:V){
+      X[v,h] ~ dnorm(M[v] , sd = sqrt(Tau[h]^(-1)))
+    }
+  }
+  
+  # Compute linear predictor
+  M.Z[1:V,1:V] <- mu + X[,] %*% t(X[,]) # Recall multivariate nodes must be used with []
+
+  # Likelihood
+  for (i in 2:V){
+    for (j in 1:(i-1)){ # Self-edges not allowed
+      P[i,j] <- phi(M.Z[i,j]) # Gaussian CDF 
+      P[j,i] <- P[i,j]
+      Y[i,j] ~ dbin(size = 1, prob = P[i,j])
+    }
+  }
+
+})
+
+
+
+```
+
+```{r}
+
+nchains <- 2
+niter <- 5000
+nburnin <- 2000
+
+samplesHMC <- nimbleHMC(fmCode, data = fmData, inits = fmInits, constants = fmConsts, 
+          monitors = c("P", "mu", "Tau"), WAIC = TRUE, 
+          niter = niter, nburnin = nburnin, nchains = nchains)
+```
+```{r}
+all.samples <- do.call(rbind, samplesHMC$samples) # create dataframe with all chains
+all.samples[is.na(all.samples)] <- 0
+#all.samples <- samplesHMC$samples
+p.HMC <- all.samples[, grepl("P", colnames(all.samples))]
+# p.HMC
+# Latent probability recovery: only possible with simulated data
+p.HMC.means <- colMeans(p.HMC)
+p.post.HMC <- matrix(p.HMC.means, byrow = FALSE, nrow = N, ncol = N)
+p.post.HMC
+diag(p.post.HMC) <- 0
+
+df <- data.frame(p.post = p.post.HMC[upper.tri(p.post.HMC)],  y = A[upper.tri(A)] )
+plot.roc(df$y ~ df$p.post, percent = TRUE, print.auc = TRUE, main = "ROC Curve - Factor Model with Simulated Data")
+
+mcmc_trace(all.samples, regex_pars = "Tau")
+```
+
