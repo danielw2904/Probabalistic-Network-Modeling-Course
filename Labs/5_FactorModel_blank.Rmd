@@ -93,7 +93,7 @@ for(h in 1:H){
 # Simulate latent factors
 X <- matrix(NA, nrow = V, ncol = H)
 for(h in 1:H){
-  X[,h] <- rmvnorm(n = 1, mean = rep(0, V), sigma = diag(Tau[h]^(-1), nrow = V)) 
+  X[,h] <- mvtnorm::rmvnorm(n = 1, mean = rep(0, V), sigma = diag(Tau[h]^(-1), nrow = V)) 
 }
 
 # Simulate intercept
@@ -166,7 +166,7 @@ for(h in 1:H){
 # Simulate latent factors
 X <- matrix(NA, nrow = V, ncol = H)
 for(h in 1:H){
-  X[,h] <- rmvnorm(n = 1, mean = rep(0, V), sigma = diag(Tau[h]^(-1), nrow = V)) 
+  X[,h] <- mvtnorm::rmvnorm(n = 1, mean = rep(0, V), sigma = diag(Tau[h]^(-1), nrow = V)) 
 }
 
 # Simulate intercept
@@ -264,13 +264,15 @@ derivative capabilities in order to fit using HMC.
 
 ```{r, cache = TRUE}
 
-# Set MCMC args
-nchains <- 2
-niter <- 5000
-nburnin <- 2000
+configureHMC(nimbleModel(fmCode, fmConsts, fmData, fmInits), print = TRUE)
 
-samplesHMC <- nimbleHMC(fmCode, data = fmData, inits = fmInits, constants = fmConsts, 
-          monitors = c("P", "mu", "Tau"), WAIC = TRUE, 
+# Set MCMC args
+nchains <- 1
+niter <- 50
+nburnin <- 20
+
+samplesHMC <- nimbleHMC(fmCode, data = fmData, inits = fmInits, constants = fmConsts,
+          monitors = c("P", "mu", "Tau"), WAIC = TRUE,
           niter = niter, nburnin = nburnin, nchains = nchains)
 
 ```
@@ -314,9 +316,10 @@ First we read the data.
 
 ```{r}
 # Read the data
-A <- read.csv(here::here(paste0(data_path, "2021Trade/A_subset.csv")))
+data_path <- "./Data/"
+A <- read.csv("~/Projects/Probabalistic-Network-Modeling-Course/Data/2021Trade/A_subset.csv")
 A <- as.matrix(A)
-features <- read.csv(here::here(paste0(data_path, "2021Trade/Features_subset.csv")))
+features <- read.csv("~/Projects/Probabalistic-Network-Modeling-Course/Data/2021Trade/Features_subset.csv")
 ```
 *** 
 
@@ -340,6 +343,7 @@ First, we fit the latent eigenmodel without regressors.
 library(eigenmodel)
 # Define the model data
 reg <- as.factor(features$region) 
+V <- nrow(A)
 X = array(outer(reg,reg, FUN = "==")*1, dim = c(V,V,1)) # x_ij = 1(region_i == region_j)
 
 # Without regressors

@@ -351,6 +351,15 @@ sbmCode <- nimbleCode({
       Y[i,j] ~ dbin(size = 1, prob = Pi[i,j])
     }
   }
+  
+  # Compute logL
+  for (i in 2:N){
+    for (j in 1:(i-1)){ # Self-edges not allowed
+      mat.logL[i,j] <- log((Pi[i,j]^Y[i,j])*((1 - Pi[i,j])^(1-Y[i,j])))
+      #mat.logL[j,i] <- 0
+    }}
+  
+  logL <- sum(mat.logL[1:N, 1:N])/2 # diag is zero so this works
 
 })
 
@@ -391,7 +400,8 @@ diag(theta_init) <- 0.6
 sbmInits <- list(lambda = rep(1/K, K), # block assignment probs
                  theta = theta_init, # edge probs, better init
                  Pi = matrix(mean(A[lower.tri(A)]), N, N), # edge probs
-                 Z = sample(1:K, N, TRUE)) # group indicators
+                 Z = sample(1:K, N, TRUE),
+                 mat.logL = matrix(0,N,N)) # group indicators
 ```
 
 TODO: Add loglik to output to monitor overall mixing
@@ -406,12 +416,13 @@ mcmc.out <- nimbleMCMC(code = sbmCode, constants = sbmConsts,
                        data = sbmData, inits = sbmInits,
                        nchains = nchains, niter = niter, nburnin = nburn, thin = nthin,
                        summary = TRUE, WAIC = TRUE,
-                       monitors = c('lambda', 'theta', 'Z'))
+                       monitors = c('lambda', 'theta', 'Z', "logL", "Pi"))
 ```
 
 Take a first look at results!
 
 ```{r}
+mcmc.out$samples <- lapply(mcmc.out$samples, \(x){ x[is.na(x)] <- 0; return(x)}) ### MODIFY
 samples <- mcmc.out$samples
 mcmc_trace(samples, regex_pars = c("lambda"))
 ```
@@ -466,6 +477,43 @@ ggraph(g, layout = 'stress') +
   scale_size_continuous(name = "Normalized degree")
   #theme(legend.position = "none")
 ```
+
+Posterior predictive checs
+
+```{r}
+all.samples <- do.call(rbind, mcmc.out$samples) # as matrix
+p.samples <- all.samples[, grepl("^Pi", colnames(all.samples))]
+p.post <- matrix(data = colMeans(p.samples), byrow = FALSE, nrow = N, ncol = N)
+obsA <-  A[upper.tri(A)]
+df <- data.frame(pred = p.post[lower.tri(p.post)], data = obsA)
+pROC::plot.roc(df$data ~ df$pred, percent = TRUE, print.auc = TRUE, main = "ROC Curve - Baseline GLM")
+
+
+A.r <- matrix(NA, nrow = N, ncol = N)
+postD <- matrix(NA, nrow = nrow(p.samples), ncol = 1)
+allD <- matrix(NA, nrow = nrow(p.samples), ncol = N)
+for(r in 1:nrow(p.samples)){
+  
+  # Sample adjacency matrix
+  p.post.r <- matrix(data = p.samples[r,], byrow = FALSE, nrow = N, ncol = N)
+  diag(p.post.r) <- 0
+  A.r[upper.tri(A.r)] <- rbinom(N*(N - 1)/2, 1, p.post.r[lower.tri(p.post.r)])
+  A.r[lower.tri(A.r)] <- t(A.r)[lower.tri(A.r)]
+  diag(A.r) <- 0
+  
+  # Sample network density
+  postD[r,] <- sum(A.r[lower.tri(A.r)])/(N*(N -1)/2)
+  allD[r,] <- rowSums(A.r)
+}
+
+D.obs <- sum(A[lower.tri(A)])/(N*(N -1)/2)
+hist(postD)
+abline(v = D.obs)
+
+all.D.obs <- rowSums(A)
+pp_check(all.D.obs, allD[2000:2050, ], ppc_dens_overlay)
+```
+
 
 # Factor Model
 
