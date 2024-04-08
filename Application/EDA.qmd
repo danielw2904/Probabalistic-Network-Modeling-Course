@@ -537,8 +537,7 @@ fmData <- list(Y = A)
 # Set initialization parameters
 fmInits <- list(X = matrix(0, N, H), 
                 U = 1:H,
-                mu = mu0,
-                )
+                mu = mu0)
 
 fmDims <- list(Tau = H, X = c(N, H), P = c(N,N))
 
